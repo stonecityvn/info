@@ -1,50 +1,77 @@
 <!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>ESP8266 Remote Panel</title>
+<title>ESP8266 Remote Panel (Firebase)</title>
 <style>
 body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:24px}
 .card{border:1px solid #ddd;border-radius:14px;padding:16px;margin:12px 0}
 input,button{font-size:16px;padding:8px}
 small{color:#666}
 </style>
-<h2>ESP8266 Remote Panel (GitHub Pages)</h2>
+<h2>ESP8266 Remote Panel (Firebase, không cần IP)</h2>
+
 <div class="card">
-<h3>1) Cài địa chỉ ESP</h3>
-<input id=ip placeholder="vd: 192.168.1.23 hoặc esp8266.local" style="width:260px" />
-<button onclick="saveIp()">Lưu</button>
-<p><small>Mẹo: nếu dùng mDNS thì gõ <b>esp8266.local</b>. Phải cùng mạng LAN với ESP.</small></p>
+  <h3>1) Cấu hình Firebase</h3>
+  <p>Dán cấu hình web của Firebase (<i>project settings → SDK setup and configuration</i>):</p>
+  <textarea id="fbconf" rows="6" style="width:100%"></textarea><br>
+  <button onclick="saveFb()">Lưu cấu hình</button>
+  <p><small>Chỉ lưu trong trình duyệt (localStorage).</small></p>
 </div>
+
 <div class="card">
-<h3>2) Giờ hiện tại</h3>
-<div id=clock style="font-size:28px;font-weight:600">--:--:--</div>
-<button onclick="syncTime()">Sync giờ sang ESP</button>
+  <h3>2) ID Thiết bị</h3>
+  <input id="devid" placeholder="VD: 12AB34" />
+  <button onclick="saveDev()">Lưu</button>
+  <p><small>ID = 6 hex cuối của chip ESP (LCD hiện trong trang cấu hình) hoặc xem trong code.</small></p>
 </div>
+
 <div class="card">
-<h3>3) Gửi tin nhắn tới ESP</h3>
-<input id=msg placeholder="Nội dung..." style="width:260px" />
-<button onclick="sendMsg()">Gửi</button>
-<p id=out></p>
+  <h3>3) Gửi tin nhắn</h3>
+  <input id="msg" placeholder="Nội dung..." style="width:260px" />
+  <button onclick="sendMsg()">Gửi</button>
+  <p id="out"></p>
 </div>
-<script>
-const LS_KEY='esp_ip';
-function getIp(){return localStorage.getItem(LS_KEY)||''}
-function saveIp(){localStorage.setItem(LS_KEY, document.getElementById('ip').value.trim()); alert('Đã lưu IP!')}
-// clock
-setInterval(()=>{const d=new Date();
-const z=n=>String(n).padStart(2,'0');
-document.getElementById('clock').textContent=`${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
-},500);
-async function sendMsg(){const ip=getIp(); if(!ip){alert('Chưa cài IP'); return}
-const url=`http://${ip}/push?text=`+encodeURIComponent(document.getElementById('msg').value);
-try{ const r=await fetch(url); document.getElementById('out').textContent=await r.text(); }
-catch(e){ alert('Không gửi được: '+e) }
+
+<div class="card">
+  <h3>4) Tình trạng</h3>
+  <div>Heartbeat mới nhất: <span id="hb">--</span></div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
+import { getDatabase, ref, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-database.js";
+
+function getConf(){ const s=localStorage.getItem('fb_conf'); return s?JSON.parse(s):null }
+function getDev(){ return localStorage.getItem('dev_id')||'' }
+function path(){ return 'devices/'+getDev() }
+
+let app, db, unsub;
+function init(){
+  const conf=getConf(); if(!conf) return;
+  app = initializeApp(conf);
+  db = getDatabase(app);
+  // subscribe heartbeat nếu đã có devid
+  const id=getDev(); if(id){ watchHb(id); }
 }
-async function syncTime(){const ip=getIp(); if(!ip){alert('Chưa cài IP'); return}
-const url=`http://${ip}/time?ts=`+Math.floor(Date.now()/1000);
-try{ const r=await fetch(url); alert(await r.text()); }
-catch(e){ alert('Lỗi: '+e) }
+function watchHb(id){
+  if(!db) return;
+  const r = ref(db, 'devices/'+id+'/heartbeat');
+  onValue(r, (snap)=>{
+    const v=snap.val();
+    if(v){ const d=new Date(v*1000); document.getElementById('hb').textContent=d.toLocaleString(); }
+  });
 }
-// khởi tạo ip input
-window.addEventListener('load',()=>{document.getElementById('ip').value=getIp()||''})
+window.saveFb = ()=>{ try{ localStorage.setItem('fb_conf', document.getElementById('fbconf').value); alert('Đã lưu. Tải lại trang để áp dụng.'); }catch(e){ alert(e)} }
+window.saveDev = ()=>{ localStorage.setItem('dev_id', document.getElementById('devid').value.trim()); alert('OK'); init(); }
+window.sendMsg = async ()=>{
+  if(!db){ alert('Chưa cấu hình Firebase'); return }
+  const id=getDev(); if(!id){ alert('Chưa đặt ID thiết bị'); return }
+  const r = ref(db, path());
+  await update(r, { message: document.getElementById('msg').value, ts: Math.floor(Date.now()/1000) });
+  document.getElementById('out').textContent = 'Đã gửi!';
+}
+// init UI
+document.getElementById('fbconf').value = localStorage.getItem('fb_conf') || '';
+document.getElementById('devid').value = getDev();
+init();
 </script>
