@@ -1,77 +1,52 @@
 <!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>ESP8266 Remote Panel (Firebase)</title>
+<title>ESP8266 Remote Panel (Static + mDNS)</title>
 <style>
 body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:24px}
 .card{border:1px solid #ddd;border-radius:14px;padding:16px;margin:12px 0}
 input,button{font-size:16px;padding:8px}
 small{color:#666}
 </style>
-<h2>ESP8266 Remote Panel (Firebase, không cần IP)</h2>
+<h2>ESP8266 Remote Panel (Static + mDNS)</h2>
 
 <div class="card">
-  <h3>1) Cấu hình Firebase</h3>
-  <p>Dán cấu hình web của Firebase (<i>project settings → SDK setup and configuration</i>):</p>
-  <textarea id="fbconf" rows="6" style="width:100%"></textarea><br>
-  <button onclick="saveFb()">Lưu cấu hình</button>
-  <p><small>Chỉ lưu trong trình duyệt (localStorage).</small></p>
+  <h3>Không cần IP — dùng mDNS</h3>
+  <p>Trang này sẽ gọi <code>http://esp8266.local</code>. Hãy chắc chắn ESP đã kết nối cùng mạng LAN, và mDNS hoạt động trên thiết bị của bạn.</p>
+  <ul>
+    <li>Windows: cài <b>Bonjour</b> (kèm iTunes) hoặc đảm bảo dịch vụ mDNS đang chạy.</li>
+    <li>macOS / iOS: hỗ trợ sẵn.</li>
+    <li>Android: thường hoạt động trong Chrome mới; nếu không, bạn có thể dùng trình duyệt khác hỗ trợ .local.</li>
+  </ul>
 </div>
 
 <div class="card">
-  <h3>2) ID Thiết bị</h3>
-  <input id="devid" placeholder="VD: 12AB34" />
-  <button onclick="saveDev()">Lưu</button>
-  <p><small>ID = 6 hex cuối của chip ESP (LCD hiện trong trang cấu hình) hoặc xem trong code.</small></p>
-</div>
-
-<div class="card">
-  <h3>3) Gửi tin nhắn</h3>
+  <h3>Gửi tin nhắn</h3>
   <input id="msg" placeholder="Nội dung..." style="width:260px" />
   <button onclick="sendMsg()">Gửi</button>
   <p id="out"></p>
 </div>
 
 <div class="card">
-  <h3>4) Tình trạng</h3>
-  <div>Heartbeat mới nhất: <span id="hb">--</span></div>
+  <h3>Đồng bộ thời gian</h3>
+  <button onclick="syncTime()">Sync giờ sang ESP</button>
 </div>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
-import { getDatabase, ref, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-database.js";
+<script>
+const BASE = 'http://esp8266.local';
 
-function getConf(){ const s=localStorage.getItem('fb_conf'); return s?JSON.parse(s):null }
-function getDev(){ return localStorage.getItem('dev_id')||'' }
-function path(){ return 'devices/'+getDev() }
-
-let app, db, unsub;
-function init(){
-  const conf=getConf(); if(!conf) return;
-  app = initializeApp(conf);
-  db = getDatabase(app);
-  // subscribe heartbeat nếu đã có devid
-  const id=getDev(); if(id){ watchHb(id); }
+async function sendMsg(){
+  try{
+    const url = BASE + '/push?text='+encodeURIComponent(document.getElementById('msg').value);
+    const r = await fetch(url, {method:'GET', mode:'cors'});
+    document.getElementById('out').textContent = await r.text();
+  }catch(e){ alert('Không gửi được: '+e); }
 }
-function watchHb(id){
-  if(!db) return;
-  const r = ref(db, 'devices/'+id+'/heartbeat');
-  onValue(r, (snap)=>{
-    const v=snap.val();
-    if(v){ const d=new Date(v*1000); document.getElementById('hb').textContent=d.toLocaleString(); }
-  });
+async function syncTime(){
+  try{
+    const url = BASE + '/time?ts=' + Math.floor(Date.now()/1000);
+    const r = await fetch(url, {method:'GET', mode:'cors'});
+    alert(await r.text());
+  }catch(e){ alert('Lỗi: '+e); }
 }
-window.saveFb = ()=>{ try{ localStorage.setItem('fb_conf', document.getElementById('fbconf').value); alert('Đã lưu. Tải lại trang để áp dụng.'); }catch(e){ alert(e)} }
-window.saveDev = ()=>{ localStorage.setItem('dev_id', document.getElementById('devid').value.trim()); alert('OK'); init(); }
-window.sendMsg = async ()=>{
-  if(!db){ alert('Chưa cấu hình Firebase'); return }
-  const id=getDev(); if(!id){ alert('Chưa đặt ID thiết bị'); return }
-  const r = ref(db, path());
-  await update(r, { message: document.getElementById('msg').value, ts: Math.floor(Date.now()/1000) });
-  document.getElementById('out').textContent = 'Đã gửi!';
-}
-// init UI
-document.getElementById('fbconf').value = localStorage.getItem('fb_conf') || '';
-document.getElementById('devid').value = getDev();
-init();
 </script>
